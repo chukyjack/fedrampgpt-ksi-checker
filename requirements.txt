@@ -5,6 +5,7 @@ pydantic>=2.5.0
 # Dependencies for the GitHub App
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
+gunicorn==23.0.0
 httpx>=0.26.0
 PyJWT>=2.8.0
 cryptography>=41.0.0
