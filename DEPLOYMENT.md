@@ -22,13 +22,20 @@ This guide covers deploying the FedRAMP KSI-MLA-05 solution for production use.
    - **Webhook secret**: Generate a secure random string (save this!)
 
 3. Set **Permissions**:
-   - **Repository permissions**:
-     - `Checks`: Read & write
-     - `Actions`: Read-only
-     - `Contents`: Read-only (optional, for future features)
+
+   **Repository permissions**:
+
+   | Permission | Access | Why It's Needed |
+   |------------|--------|-----------------|
+   | `Checks` | Read & write | **Required.** Allows the app to create and update Check Runs on commits, displaying the FedRAMP compliance status (PASS/FAIL/ERROR) directly in the GitHub UI. |
+   | `Actions` | Read-only | **Required.** Allows the app to download workflow run artifacts containing the evidence pack (evaluation_manifest.json) to determine the compliance status. |
+   | `Contents` | Read-only | **Optional.** Reserved for future features like reading Terraform files directly. Not used in current version. |
 
 4. **Subscribe to events**:
-   - ✅ `Workflow run`
+
+   | Event | Why It's Needed |
+   |-------|-----------------|
+   | `Workflow run` | **Required.** Triggers the app when FedRAMP KSI workflows complete, allowing it to download artifacts and post Check Run results. |
 
 5. Click **Create GitHub App**
 
