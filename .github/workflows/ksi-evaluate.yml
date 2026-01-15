@@ -1,0 +1,63 @@
+# Reusable workflow for FedRAMP KSI-MLA-05 evaluation
+# Users can call this from their repos with minimal configuration
+
+name: FedRAMP KSI-MLA-05 Evaluation
+
+on:
+  workflow_call:
+    inputs:
+      root_paths:
+        description: 'Comma-separated list of paths to scan for Terraform files'
+        required: false
+        type: string
+        default: '.'
+      terraform_version:
+        description: 'Terraform version to use'
+        required: false
+        type: string
+        default: '1.6.0'
+      python_version:
+        description: 'Python version to use'
+        required: false
+        type: string
+        default: '3.11'
+    outputs:
+      status:
+        description: 'Overall KSI status: PASS, FAIL, or ERROR'
+        value: ${{ jobs.evaluate.outputs.status }}
+      artifact_name:
+        description: 'Name of the generated evidence artifact'
+        value: ${{ jobs.evaluate.outputs.artifact_name }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.ksi.outputs.status }}
+      artifact_name: ${{ steps.ksi.outputs.artifact_name }}
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+
+      - name: Run FedRAMP KSI-MLA-05 Evaluation
+        uses: chukyjack/fedrampgpt-ksi-checker@v1
+        id: ksi
+        with:
+          root_paths: ${{ inputs.root_paths }}
+          python_version: ${{ inputs.python_version }}
+
+      - name: Summary
+        run: |
+          echo "## FedRAMP KSI-MLA-05 Evaluation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.ksi.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifact:** ${{ steps.ksi.outputs.artifact_name }}" >> $GITHUB_STEP_SUMMARY

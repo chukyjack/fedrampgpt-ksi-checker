@@ -17,21 +17,55 @@ This project provides:
 
 ### 1. Install the GitHub App
 
-Install the FedRAMP KSI GitHub App on your repository from the GitHub Marketplace.
+Install the [FedRAMP KSI GitHub App](https://github.com/apps/fedrampgpt-ksi-checker) on your repository.
 
-### 2. Add the Workflow
+### 2. Add the Workflow (Simple)
 
-Create `.github/workflows/fedramp-ksi-evidence.yml`:
+Create `.github/workflows/fedramp-ksi.yml`:
+
+```yaml
+name: FedRAMP KSI
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight UTC
+  workflow_dispatch:
+jobs:
+  evaluate:
+    uses: chukyjack/fedrampgpt-ksi-checker/.github/workflows/ksi-evaluate.yml@v1
+```
+
+That's it! Just 8 lines.
+
+#### With Custom Options
+
+```yaml
+name: FedRAMP KSI
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+jobs:
+  evaluate:
+    uses: chukyjack/fedrampgpt-ksi-checker/.github/workflows/ksi-evaluate.yml@v1
+    with:
+      terraform_version: '1.7.0'    # Optional: specify Terraform version
+      root_paths: 'terraform/'      # Optional: scan specific directories
+```
+
+### Alternative: Full Workflow (Advanced)
+
+If you need full control, use the action directly:
+
+<details>
+<summary>Click to expand full workflow</summary>
 
 ```yaml
 name: FedRAMP 20x KSI Evidence
 
 on:
   schedule:
-    # Run daily at midnight UTC for persistent cycle compliance
     - cron: '0 0 * * *'
   workflow_dispatch:
-    # Allow manual runs for testing
 
 permissions:
   contents: read
@@ -50,7 +84,7 @@ jobs:
           terraform_version: '1.6.0'
 
       - name: Run FedRAMP KSI-MLA-05 Evaluation
-        uses: your-org/fedramp-ksi-action@v1
+        uses: chukyjack/fedrampgpt-ksi-checker@v1
         id: ksi
 
       - name: Summary
@@ -58,6 +92,8 @@ jobs:
           echo "Status: ${{ steps.ksi.outputs.status }}"
           echo "Artifact: ${{ steps.ksi.outputs.artifact_name }}"
 ```
+
+</details>
 
 ### 3. Wait for Scheduled Run
 
