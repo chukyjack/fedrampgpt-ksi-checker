@@ -1,0 +1,109 @@
+# FedRAMP 20x KSI-MLA-05 Evidence Workflow
+#
+# This workflow evaluates Terraform configuration for FedRAMP 20x KSI-MLA-05
+# (Evaluate Configuration) compliance and generates evidence artifacts.
+#
+# IMPORTANT: For PASS status on MLA05-C (Persistent Cycle), this workflow
+# MUST be triggered by a schedule event. Manual or push-triggered runs
+# will result in FAIL for that criterion.
+
+name: FedRAMP 20x KSI Evidence
+
+on:
+  # Schedule for persistent cycle compliance (MLA05-C)
+  # Runs daily at midnight UTC
+  schedule:
+    - cron: '0 0 * * *'
+
+  # Allow manual runs for testing
+  # Note: Manual runs will FAIL MLA05-C criterion
+  workflow_dispatch:
+    inputs:
+      terraform_version:
+        description: 'Terraform version to use'
+        required: false
+        default: '1.6.0'
+
+  # Optional: Run on push for early detection
+  # Note: Push runs will FAIL MLA05-C criterion
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - '**.tf'
+  #     - '.github/workflows/fedramp-ksi-evidence.yml'
+
+permissions:
+  contents: read
+  actions: read
+  # If posting checks directly from action (not using App):
+  # checks: write
+
+jobs:
+  evaluate:
+    name: KSI-MLA-05 Evaluation
+    runs-on: ubuntu-latest
+
+    outputs:
+      status: ${{ steps.ksi.outputs.status }}
+      artifact_name: ${{ steps.ksi.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version || '1.6.0' }}
+          terraform_wrapper: false
+
+      - name: Verify Terraform
+        run: terraform version
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install python-hcl2>=4.3.0 pydantic>=2.5.0
+
+      - name: Run FedRAMP KSI-MLA-05 Evaluation
+        id: ksi
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python action/src/main.py
+
+      - name: Upload evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.ksi.outputs.artifact_name }}
+          path: |
+            ${{ steps.ksi.outputs.artifact_path }}
+            ${{ github.workspace }}/.fedramp-evidence/evidence/
+          retention-days: 90
+
+      - name: Upload results summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedramp-ksi-results
+          path: ${{ github.workspace }}/.fedramp-evidence/results.json
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Report Status
+        run: |
+          echo "## FedRAMP KSI-MLA-05 Evaluation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.ksi.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifact:** ${{ steps.ksi.outputs.artifact_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.ksi.outputs.status }}" == "PASS" ]; then
+            echo "✅ All KSI-MLA-05 criteria passed." >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.ksi.outputs.status }}" == "FAIL" ]; then
+            echo "❌ One or more criteria failed. Review the evidence artifact for details." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Evaluation encountered errors. Review the evidence artifact for details." >> $GITHUB_STEP_SUMMARY
+          fi
