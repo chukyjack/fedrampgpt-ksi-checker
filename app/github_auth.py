@@ -38,14 +38,18 @@ class GitHubAppAuth:
         if private_key.startswith("-----BEGIN"):
             # Direct PEM content
             key = private_key
-        elif Path(private_key).exists():
-            # File path
+        elif len(private_key) < 256 and Path(private_key).exists():
+            # File path (only check if short enough to be a path)
             with open(private_key, "r") as f:
                 key = f.read()
         else:
             # Try base64 decoding (common for environment variables)
             try:
-                key = base64.b64decode(private_key).decode("utf-8")
+                decoded = base64.b64decode(private_key).decode("utf-8")
+                if decoded.startswith("-----BEGIN"):
+                    key = decoded
+                else:
+                    raise ValueError("Decoded value is not a PEM key")
             except Exception:
                 raise ValueError(
                     "GITHUB_APP_PRIVATE_KEY must be PEM content, a file path, or base64-encoded PEM"
