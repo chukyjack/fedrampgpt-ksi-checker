@@ -63,77 +63,81 @@ async def process_workflow_run(payload: dict[str, Any]) -> None:
     Args:
         payload: Webhook payload
     """
-    action = payload.get("action")
-    workflow_run = payload.get("workflow_run", {})
-    repository = payload.get("repository", {})
-    installation = payload.get("installation", {})
+    try:
+        action = payload.get("action")
+        workflow_run = payload.get("workflow_run", {})
+        repository = payload.get("repository", {})
+        installation = payload.get("installation", {})
 
-    # Only process completed runs
-    if action != "completed":
-        logger.debug(f"Ignoring workflow_run action: {action}")
-        return
+        # Only process completed runs
+        if action != "completed":
+            logger.debug(f"Ignoring workflow_run action: {action}")
+            return
 
-    installation_id = installation.get("id")
-    owner = repository.get("owner", {}).get("login")
-    repo = repository.get("name")
-    run_id = workflow_run.get("id")
-    head_sha = workflow_run.get("head_sha")
-    run_url = workflow_run.get("html_url")
-    workflow_name = workflow_run.get("name", "")
+        installation_id = installation.get("id")
+        owner = repository.get("owner", {}).get("login")
+        repo = repository.get("name")
+        run_id = workflow_run.get("id")
+        head_sha = workflow_run.get("head_sha")
+        run_url = workflow_run.get("html_url")
+        workflow_name = workflow_run.get("name", "")
 
-    if not all([installation_id, owner, repo, run_id, head_sha]):
-        logger.error("Missing required fields in workflow_run payload")
-        return
+        if not all([installation_id, owner, repo, run_id, head_sha]):
+            logger.error("Missing required fields in workflow_run payload")
+            return
 
-    logger.info(f"Processing workflow run {run_id} for {owner}/{repo}")
+        logger.info(f"Processing workflow run {run_id} for {owner}/{repo}")
 
-    # Check if this workflow produced KSI evidence
-    evidence_artifact = await find_evidence_artifact(installation_id, owner, repo, run_id)
-    if not evidence_artifact:
-        logger.debug(f"No evidence artifact found for run {run_id}")
-        return
+        # Check if this workflow produced KSI evidence
+        evidence_artifact = await find_evidence_artifact(installation_id, owner, repo, run_id)
+        if not evidence_artifact:
+            logger.info(f"No KSI evidence artifact found for run {run_id} - skipping")
+            return
 
-    logger.info(f"Found evidence artifact: {evidence_artifact.get('name')}")
+        logger.info(f"Found evidence artifact: {evidence_artifact.get('name')}")
 
-    # Get evaluation results
-    manifest, summary = await get_evaluation_results(installation_id, owner, repo, run_id)
+        # Get evaluation results
+        manifest, summary = await get_evaluation_results(installation_id, owner, repo, run_id)
 
-    if not manifest:
-        logger.error(f"Could not extract evaluation manifest from artifact")
-        return
+        if not manifest:
+            logger.error(f"Could not extract evaluation manifest from artifact")
+            return
 
-    artifact_name = evidence_artifact.get("name")
-    logger.info(f"Evaluation status: {manifest.get('status')}")
+        artifact_name = evidence_artifact.get("name")
+        logger.info(f"Evaluation status: {manifest.get('status')}")
 
-    # Check for existing check run
-    existing = await find_existing_check_run(installation_id, owner, repo, head_sha)
+        # Check for existing check run
+        existing = await find_existing_check_run(installation_id, owner, repo, head_sha)
 
-    if existing:
-        # Update existing check run
-        logger.info(f"Updating existing check run {existing.get('id')}")
-        await update_check_run(
-            installation_id=installation_id,
-            owner=owner,
-            repo=repo,
-            check_run_id=existing["id"],
-            manifest=manifest,
-            artifact_name=artifact_name,
-            run_url=run_url,
-        )
-    else:
-        # Create new check run
-        logger.info(f"Creating check run for {head_sha}")
-        await create_check_run(
-            installation_id=installation_id,
-            owner=owner,
-            repo=repo,
-            head_sha=head_sha,
-            manifest=manifest,
-            artifact_name=artifact_name,
-            run_url=run_url,
-        )
+        if existing:
+            # Update existing check run
+            logger.info(f"Updating existing check run {existing.get('id')}")
+            await update_check_run(
+                installation_id=installation_id,
+                owner=owner,
+                repo=repo,
+                check_run_id=existing["id"],
+                manifest=manifest,
+                artifact_name=artifact_name,
+                run_url=run_url,
+            )
+        else:
+            # Create new check run
+            logger.info(f"Creating check run for {head_sha}")
+            await create_check_run(
+                installation_id=installation_id,
+                owner=owner,
+                repo=repo,
+                head_sha=head_sha,
+                manifest=manifest,
+                artifact_name=artifact_name,
+                run_url=run_url,
+            )
 
-    logger.info(f"Successfully processed workflow run {run_id}")
+        logger.info(f"Successfully processed workflow run {run_id}")
+
+    except Exception as e:
+        logger.error(f"Error processing workflow run: {e}", exc_info=True)
 
 
 @app.post("/webhook")
@@ -142,8 +146,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     Verifies signature and dispatches to appropriate handler.
     """
-    # Verify signature and get payload
-    payload = await get_verified_payload(request)
+    try:
+        # Verify signature and get payload
+        payload = await get_verified_payload(request)
+    except Exception as e:
+        logger.error(f"Failed to verify webhook: {e}")
+        return JSONResponse(
+            content={"status": "error", "message": "Signature verification failed"},
+            status_code=401,
+        )
 
     event_type = request.headers.get("X-GitHub-Event", "unknown")
     delivery_id = request.headers.get("X-GitHub-Delivery", "unknown")
