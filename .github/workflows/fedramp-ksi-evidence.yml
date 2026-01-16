@@ -1,22 +1,25 @@
-# FedRAMP 20x KSI-MLA-05 Evidence Workflow
+# FedRAMP 20x KSI Evidence Workflow
 #
-# This workflow evaluates Terraform configuration for FedRAMP 20x KSI-MLA-05
-# (Evaluate Configuration) compliance and generates evidence artifacts.
+# This workflow evaluates Terraform configuration for FedRAMP 20x KSI compliance
+# and generates evidence artifacts for multiple KSIs:
 #
-# IMPORTANT: For PASS status on MLA05-C (Persistent Cycle), this workflow
-# MUST be triggered by a schedule event. Manual or push-triggered runs
-# will result in FAIL for that criterion.
+# - KSI-MLA-05: Evaluate Configuration
+# - KSI-CNA-01: Restrict Network Traffic
+#
+# IMPORTANT: For PASS status on persistent cycle criteria (MLA05-C, CNA01-D),
+# this workflow MUST be triggered by a schedule event. Manual or push-triggered
+# runs will result in FAIL for those criteria.
 
 name: FedRAMP 20x KSI Evidence
 
 on:
-  # Schedule for persistent cycle compliance (MLA05-C)
+  # Schedule for persistent cycle compliance
   # Runs daily at midnight UTC
   schedule:
     - cron: '0 0 * * *'
 
   # Allow manual runs for testing
-  # Note: Manual runs will FAIL MLA05-C criterion
+  # Note: Manual runs will FAIL persistent cycle criteria
   workflow_dispatch:
     inputs:
       terraform_version:
@@ -25,7 +28,7 @@ on:
         default: '1.6.0'
 
   # Optional: Run on push for early detection
-  # Note: Push runs will FAIL MLA05-C criterion
+  # Note: Push runs will FAIL persistent cycle criteria
   # push:
   #   branches: [main]
   #   paths:
@@ -40,12 +43,14 @@ permissions:
 
 jobs:
   evaluate:
-    name: KSI-MLA-05 Evaluation
+    name: KSI Evidence Evaluation
     runs-on: ubuntu-latest
 
     outputs:
       status: ${{ steps.ksi.outputs.status }}
       artifact_name: ${{ steps.ksi.outputs.artifact_name }}
+      cna01_status: ${{ steps.ksi.outputs.cna01_status }}
+      cna01_artifact_name: ${{ steps.ksi.outputs.cna01_artifact_name }}
 
     steps:
       - name: Checkout repository
@@ -68,21 +73,32 @@ jobs:
       - name: Install dependencies
         run: pip install python-hcl2>=4.3.0 pydantic>=2.5.0
 
-      - name: Run FedRAMP KSI-MLA-05 Evaluation
+      - name: Run FedRAMP KSI Evidence Evaluation
         id: ksi
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python action/src/main.py
 
-      - name: Upload evidence artifact
+      # Upload MLA-05 evidence artifact
+      - name: Upload MLA-05 evidence artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.ksi.outputs.artifact_name }}
           path: |
             ${{ steps.ksi.outputs.artifact_path }}
-            ${{ github.workspace }}/.fedramp-evidence/evidence/
+            ${{ github.workspace }}/.fedramp-evidence/evidence/ksi-mla-05/
           retention-days: 90
 
+      # Upload CNA-01 evidence artifact
+      - name: Upload CNA-01 evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.ksi.outputs.cna01_artifact_name }}
+          path: |
+            ${{ github.workspace }}/.fedramp-evidence/evidence/ksi-cna-01/
+          retention-days: 90
+
+      # Upload combined results summary
       - name: Upload results summary
         uses: actions/upload-artifact@v4
         with:
@@ -93,17 +109,20 @@ jobs:
 
       - name: Report Status
         run: |
-          echo "## FedRAMP KSI-MLA-05 Evaluation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## FedRAMP 20x KSI Evidence Evaluation Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ${{ steps.ksi.outputs.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Artifact:** ${{ steps.ksi.outputs.artifact_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${{ steps.ksi.outputs.status }}" == "PASS" ]; then
-            echo "✅ All KSI-MLA-05 criteria passed." >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ steps.ksi.outputs.status }}" == "FAIL" ]; then
-            echo "❌ One or more criteria failed. Review the evidence artifact for details." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️ Evaluation encountered errors. Review the evidence artifact for details." >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "### KSI Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| KSI | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| KSI-MLA-05 (Evaluate Configuration) | ${{ steps.ksi.outputs.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| KSI-CNA-01 (Restrict Network Traffic) | ${{ steps.ksi.outputs.cna01_status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Evidence Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **KSI-MLA-05:** \`${{ steps.ksi.outputs.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **KSI-CNA-01:** \`${{ steps.ksi.outputs.cna01_artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See the evidence artifacts for detailed criteria results." >> $GITHUB_STEP_SUMMARY
