@@ -1,7 +1,8 @@
-# Reusable workflow for FedRAMP KSI-MLA-05 evaluation
+# Reusable workflow for FedRAMP KSI evaluation
 # Users can call this from their repos with minimal configuration
+# Evaluates: KSI-MLA-05 (Evaluate Configuration), KSI-CNA-01 (Restrict Network Traffic)
 
-name: FedRAMP KSI-MLA-05 Evaluation
+name: FedRAMP KSI Evaluation
 
 on:
   workflow_call:
@@ -23,11 +24,17 @@ on:
         default: '3.11'
     outputs:
       status:
-        description: 'Overall KSI status: PASS, FAIL, or ERROR'
+        description: 'Overall KSI-MLA-05 status: PASS, FAIL, or ERROR'
         value: ${{ jobs.evaluate.outputs.status }}
       artifact_name:
-        description: 'Name of the generated evidence artifact'
+        description: 'Name of the MLA-05 evidence artifact'
         value: ${{ jobs.evaluate.outputs.artifact_name }}
+      cna01_status:
+        description: 'Overall KSI-CNA-01 status: PASS, FAIL, or ERROR'
+        value: ${{ jobs.evaluate.outputs.cna01_status }}
+      cna01_artifact_name:
+        description: 'Name of the CNA-01 evidence artifact'
+        value: ${{ jobs.evaluate.outputs.cna01_artifact_name }}
 
 permissions:
   contents: read
@@ -39,6 +46,8 @@ jobs:
     outputs:
       status: ${{ steps.ksi.outputs.status }}
       artifact_name: ${{ steps.ksi.outputs.artifact_name }}
+      cna01_status: ${{ steps.ksi.outputs.cna01_status }}
+      cna01_artifact_name: ${{ steps.ksi.outputs.cna01_artifact_name }}
     steps:
       - name: Checkout caller repository
         uses: actions/checkout@v4
@@ -48,7 +57,7 @@ jobs:
         with:
           terraform_version: ${{ inputs.terraform_version }}
 
-      - name: Run FedRAMP KSI-MLA-05 Evaluation
+      - name: Run FedRAMP KSI Evaluation
         uses: chukyjack/fedrampgpt-ksi-checker@v1
         id: ksi
         with:
@@ -57,7 +66,12 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## FedRAMP KSI-MLA-05 Evaluation Results" >> $GITHUB_STEP_SUMMARY
+          echo "## FedRAMP KSI Evaluation Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### KSI-MLA-05: Evaluate Configuration" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** ${{ steps.ksi.outputs.status }}" >> $GITHUB_STEP_SUMMARY
           echo "**Artifact:** ${{ steps.ksi.outputs.artifact_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### KSI-CNA-01: Restrict Network Traffic" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.ksi.outputs.cna01_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifact:** ${{ steps.ksi.outputs.cna01_artifact_name }}" >> $GITHUB_STEP_SUMMARY
