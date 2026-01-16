@@ -1,5 +1,5 @@
-name: 'FedRAMP KSI-MLA-05 Evidence'
-description: 'Evaluate Terraform configuration for FedRAMP 20x KSI-MLA-05 compliance and generate evidence pack'
+name: 'FedRAMP KSI Evidence'
+description: 'Evaluate Terraform configuration for FedRAMP 20x KSI compliance (MLA-05, CNA-01) and generate evidence packs'
 author: 'FedRAMP KSI Team'
 
 branding:
@@ -29,14 +29,15 @@ inputs:
     default: ''
 
 outputs:
+  # MLA-05 outputs
   status:
-    description: 'Overall KSI status: PASS, FAIL, or ERROR'
+    description: 'KSI-MLA-05 status: PASS, FAIL, or ERROR'
     value: ${{ steps.evaluate.outputs.status }}
   artifact_name:
-    description: 'Name of the generated evidence artifact'
+    description: 'Name of the MLA-05 evidence artifact'
     value: ${{ steps.evaluate.outputs.artifact_name }}
   artifact_path:
-    description: 'Path to the evidence artifact zip file'
+    description: 'Path to the MLA-05 evidence artifact zip file'
     value: ${{ steps.evaluate.outputs.artifact_path }}
   evidence_dir:
     description: 'Path to the evidence directory'
@@ -44,6 +45,13 @@ outputs:
   summary:
     description: 'Markdown summary of evaluation results'
     value: ${{ steps.evaluate.outputs.summary }}
+  # CNA-01 outputs
+  cna01_status:
+    description: 'KSI-CNA-01 status: PASS, FAIL, or ERROR'
+    value: ${{ steps.evaluate.outputs.cna01_status }}
+  cna01_artifact_name:
+    description: 'Name of the CNA-01 evidence artifact'
+    value: ${{ steps.evaluate.outputs.cna01_artifact_name }}
 
 runs:
   using: 'composite'
@@ -73,7 +81,7 @@ runs:
       run: |
         pip install python-hcl2>=4.3.0 pydantic>=2.5.0
 
-    - name: Run KSI-MLA-05 evaluation
+    - name: Run KSI evaluation
       id: evaluate
       shell: bash
       env:
@@ -82,13 +90,21 @@ runs:
       run: |
         python ${{ github.action_path }}/action/src/main.py
 
-    - name: Upload evidence artifact
+    - name: Upload MLA-05 evidence artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ steps.evaluate.outputs.artifact_name }}
         path: |
-          ${{ steps.evaluate.outputs.artifact_path }}
-          ${{ steps.evaluate.outputs.evidence_dir }}
+          ${{ github.workspace }}/.fedramp-evidence/evidence/ksi-mla-05/
+        retention-days: 90
+        if-no-files-found: error
+
+    - name: Upload CNA-01 evidence artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.evaluate.outputs.cna01_artifact_name }}
+        path: |
+          ${{ github.workspace }}/.fedramp-evidence/evidence/ksi-cna-01/
         retention-days: 90
         if-no-files-found: error
 
