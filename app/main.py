@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.artifacts import find_evidence_artifact, get_evaluation_results
+from app.artifacts import find_all_evidence_artifacts, get_all_ksi_evaluation_results
 from app.checks import create_check_run, find_existing_check_run, update_check_run
 from app.config import get_settings
 from app.webhook import get_verified_payload
@@ -37,8 +37,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="FedRAMP KSI GitHub App",
-    description="GitHub App for FedRAMP 20x KSI-MLA-05 compliance evaluation",
-    version="1.0.0",
+    description="GitHub App for FedRAMP 20x KSI compliance evaluation",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -46,7 +46,7 @@ app = FastAPI(
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"status": "ok", "app": "FedRAMP KSI GitHub App", "version": "1.0.0"}
+    return {"status": "ok", "app": "FedRAMP KSI GitHub App", "version": "1.1.0"}
 
 
 @app.get("/health")
@@ -58,7 +58,8 @@ async def health():
 async def process_workflow_run(payload: dict[str, Any]) -> None:
     """Process a workflow_run event.
 
-    Called when a workflow run completes. Downloads artifacts and creates Check Run.
+    Called when a workflow run completes. Downloads artifacts and creates Check Runs
+    for each KSI found in the workflow artifacts.
 
     Args:
         payload: Webhook payload
@@ -88,53 +89,65 @@ async def process_workflow_run(payload: dict[str, Any]) -> None:
 
         logger.info(f"Processing workflow run {run_id} for {owner}/{repo}")
 
-        # Check if this workflow produced KSI evidence
-        evidence_artifact = await find_evidence_artifact(installation_id, owner, repo, run_id)
-        if not evidence_artifact:
-            logger.info(f"No KSI evidence artifact found for run {run_id} - skipping")
+        # Check if this workflow produced any KSI evidence artifacts
+        evidence_artifacts = await find_all_evidence_artifacts(installation_id, owner, repo, run_id)
+        if not evidence_artifacts:
+            logger.info(f"No KSI evidence artifacts found for run {run_id} - skipping")
             return
 
-        logger.info(f"Found evidence artifact: {evidence_artifact.get('name')}")
+        logger.info(f"Found {len(evidence_artifacts)} evidence artifact(s)")
 
-        # Get evaluation results
-        manifest, summary = await get_evaluation_results(installation_id, owner, repo, run_id)
+        # Get evaluation results for all KSIs
+        ksi_results = await get_all_ksi_evaluation_results(installation_id, owner, repo, run_id)
 
-        if not manifest:
-            logger.error(f"Could not extract evaluation manifest from artifact")
+        if not ksi_results:
+            logger.error("Could not extract evaluation manifests from artifacts")
             return
 
-        artifact_name = evidence_artifact.get("name")
-        logger.info(f"Evaluation status: {manifest.get('status')}")
+        # Process each KSI result
+        for result in ksi_results:
+            ksi_id = result["ksi_id"]
+            artifact_name = result["artifact_name"]
+            manifest = result["manifest"]
 
-        # Check for existing check run
-        existing = await find_existing_check_run(installation_id, owner, repo, head_sha)
+            # Get status from manifest (handle different structures)
+            summary_data = manifest.get("summary", {})
+            status = summary_data.get("status") if summary_data else manifest.get("status", "UNKNOWN")
+            logger.info(f"{ksi_id} status: {status}")
 
-        if existing:
-            # Update existing check run
-            logger.info(f"Updating existing check run {existing.get('id')}")
-            await update_check_run(
-                installation_id=installation_id,
-                owner=owner,
-                repo=repo,
-                check_run_id=existing["id"],
-                manifest=manifest,
-                artifact_name=artifact_name,
-                run_url=run_url,
-            )
-        else:
-            # Create new check run
-            logger.info(f"Creating check run for {head_sha}")
-            await create_check_run(
-                installation_id=installation_id,
-                owner=owner,
-                repo=repo,
-                head_sha=head_sha,
-                manifest=manifest,
-                artifact_name=artifact_name,
-                run_url=run_url,
+            # Check for existing check run for this specific KSI
+            existing = await find_existing_check_run(
+                installation_id, owner, repo, head_sha, ksi_id
             )
 
-        logger.info(f"Successfully processed workflow run {run_id}")
+            if existing:
+                # Update existing check run
+                logger.info(f"Updating existing check run {existing.get('id')} for {ksi_id}")
+                await update_check_run(
+                    installation_id=installation_id,
+                    owner=owner,
+                    repo=repo,
+                    check_run_id=existing["id"],
+                    manifest=manifest,
+                    artifact_name=artifact_name,
+                    run_url=run_url,
+                    ksi_id=ksi_id,
+                )
+            else:
+                # Create new check run
+                logger.info(f"Creating check run for {ksi_id} on {head_sha}")
+                await create_check_run(
+                    installation_id=installation_id,
+                    owner=owner,
+                    repo=repo,
+                    head_sha=head_sha,
+                    manifest=manifest,
+                    artifact_name=artifact_name,
+                    run_url=run_url,
+                    ksi_id=ksi_id,
+                )
+
+        logger.info(f"Successfully processed workflow run {run_id} with {len(ksi_results)} KSI(s)")
 
     except Exception as e:
         logger.error(f"Error processing workflow run: {e}", exc_info=True)

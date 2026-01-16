@@ -72,6 +72,35 @@ async def find_evidence_artifact(
     return None
 
 
+async def find_all_evidence_artifacts(
+    installation_id: int,
+    owner: str,
+    repo: str,
+    run_id: int,
+) -> list[dict[str, Any]]:
+    """Find all KSI evidence artifacts in a workflow run.
+
+    Args:
+        installation_id: GitHub App installation ID
+        owner: Repository owner
+        repo: Repository name
+        run_id: Workflow run ID
+
+    Returns:
+        List of artifact metadata dicts matching KSI evidence patterns
+    """
+    artifacts = await list_workflow_run_artifacts(installation_id, owner, repo, run_id)
+
+    # Match evidence artifacts for any KSI (evidence_ksi-xxx-xx_*)
+    evidence_artifacts = []
+    for artifact in artifacts:
+        name = artifact.get("name", "")
+        if fnmatch.fnmatch(name, "evidence_ksi-*_*"):
+            evidence_artifacts.append(artifact)
+
+    return evidence_artifacts
+
+
 async def find_results_artifact(
     installation_id: int,
     owner: str,
@@ -212,3 +241,71 @@ async def get_evaluation_results(
         summary = await extract_results_summary(content)
 
     return manifest, summary
+
+
+def extract_ksi_id_from_artifact_name(artifact_name: str) -> str | None:
+    """Extract KSI ID from artifact name.
+
+    Args:
+        artifact_name: Artifact name like 'evidence_ksi-mla-05_abc1234_...'
+
+    Returns:
+        KSI ID like 'KSI-MLA-05' or None if not found
+    """
+    # Pattern: evidence_ksi-xxx-yy_sha_timestamp
+    if not artifact_name.startswith("evidence_ksi-"):
+        return None
+
+    parts = artifact_name.split("_")
+    if len(parts) < 2:
+        return None
+
+    # parts[1] is like 'ksi-mla-05' or 'ksi-cna-01'
+    ksi_part = parts[1]  # e.g., 'ksi-mla-05'
+    # Convert to uppercase: 'KSI-MLA-05'
+    return ksi_part.upper()
+
+
+async def get_all_ksi_evaluation_results(
+    installation_id: int,
+    owner: str,
+    repo: str,
+    run_id: int,
+) -> list[dict[str, Any]]:
+    """Get evaluation results for all KSIs from workflow run artifacts.
+
+    Args:
+        installation_id: GitHub App installation ID
+        owner: Repository owner
+        repo: Repository name
+        run_id: Workflow run ID
+
+    Returns:
+        List of dicts with 'ksi_id', 'artifact_name', 'artifact_id', and 'manifest'
+    """
+    results = []
+
+    # Find all evidence artifacts
+    artifacts = await find_all_evidence_artifacts(installation_id, owner, repo, run_id)
+
+    for artifact in artifacts:
+        artifact_name = artifact.get("name", "")
+        artifact_id = artifact.get("id")
+        ksi_id = extract_ksi_id_from_artifact_name(artifact_name)
+
+        if not ksi_id:
+            continue
+
+        # Download and extract manifest
+        content = await download_artifact(installation_id, owner, repo, artifact_id)
+        manifest = await extract_evaluation_manifest(content)
+
+        if manifest:
+            results.append({
+                "ksi_id": ksi_id,
+                "artifact_name": artifact_name,
+                "artifact_id": artifact_id,
+                "manifest": manifest,
+            })
+
+    return results
